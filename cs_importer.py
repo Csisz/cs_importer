@@ -13,13 +13,20 @@
 ╚══════════════════════════════════════════════════════════════════╝
 """
 
-import sys, os, time, json, mimetypes, logging, re
+import sys, os, time, json, mimetypes, logging, re, argparse, traceback
 import requests, urllib3, pandas as pd
 from pathlib import Path
 from datetime import datetime
 from file_resolver import detect_file_layout, resolve_source_path, get_roots
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+# Resolved once at import time; safe for both script and frozen EXE.
+BASE_DIR: Path = (
+    Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).parent
+)
+
+_REQUEST_TIMEOUT = 30  # seconds
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -35,15 +42,13 @@ LOG: logging.Logger = None
 
 def setup_logging(xlsx_path: str) -> tuple[str, str]:
     global LOG
-    base_dir = os.path.dirname(os.path.abspath(
-        sys.executable if getattr(sys, 'frozen', False) else __file__))
-    logs_dir = os.path.join(base_dir, "logs")
-    os.makedirs(logs_dir, exist_ok=True)
+    logs_dir = BASE_DIR / "logs"
+    logs_dir.mkdir(parents=True, exist_ok=True)
 
     stem      = Path(xlsx_path).stem
     ts        = datetime.now().strftime("%Y%m%d_%H%M%S")
-    full_path = os.path.join(logs_dir, f"{stem}_{ts}_full.log")
-    err_path  = os.path.join(logs_dir, f"{stem}_{ts}_errors.log")
+    full_path = str(logs_dir / f"{stem}_{ts}_full.log")
+    err_path  = str(logs_dir / f"{stem}_{ts}_errors.log")
 
     fmt = StripAnsiFormatter("%(asctime)s  %(levelname)-8s  %(message)s",
                               datefmt="%Y-%m-%d %H:%M:%S")
@@ -98,6 +103,19 @@ def progress_bar(cur, total, w=30):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# XLSX input validation
+# ─────────────────────────────────────────────────────────────────────────────
+def validate_xlsx_path(raw: str) -> str:
+    """Normalize, validate extension and existence; return canonical string path."""
+    p = Path(raw)
+    if p.suffix.lower() != ".xlsx":
+        raise ValueError(f"Expected a .xlsx file, got: {raw!r}")
+    if not p.exists():
+        raise FileNotFoundError(f"XLSX not found: {str(p.resolve())!r}")
+    return str(p)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Config loader
 # ─────────────────────────────────────────────────────────────────────────────
 REQUIRED = ["base_url","username","password","enterprise_node_id",
@@ -120,6 +138,7 @@ DEFAULTS = {
 }
 
 def load_config(xlsx_path: str, dry_run_flag: bool) -> dict:
+    # Config is always derived from the XLSX path, never from sys.executable.
     json_path = Path(xlsx_path).with_suffix(".json")
     if not json_path.exists():
         print(red(f"✖ Config not found: {json_path}"))
@@ -151,7 +170,8 @@ def _safe(row, col):
 def parse_workspaces(cfg: dict) -> list[dict]:
     cols       = cfg["ws_columns"]
     cat_fields = cfg["category_fields"]
-    df         = pd.read_excel(cfg["xlsx_path"], sheet_name=cfg["ws_sheet"], header=None)
+    df         = pd.read_excel(cfg["xlsx_path"], sheet_name=cfg["ws_sheet"],
+                               header=None, engine="openpyxl")
     result     = []
     for _, row in df.iloc[cfg["ws_data_start_row"]:].iterrows():
         title    = _safe(row, cols.get("title"))
@@ -175,7 +195,8 @@ def parse_workspaces(cfg: dict) -> list[dict]:
 
 def parse_files(cfg: dict) -> list[dict]:
     skip_vals = {"location", "file adatok", "title", "file név", ""}
-    df = pd.read_excel(cfg["xlsx_path"], sheet_name=cfg["file_sheet"], header=None)
+    df = pd.read_excel(cfg["xlsx_path"], sheet_name=cfg["file_sheet"],
+                       header=None, engine="openpyxl")
 
     col_map, data_start = detect_file_layout(df, cfg)
     dbg(f"  File sheet layout → header_row={data_start - 1 if data_start > 0 else '(none)'}, "
@@ -253,14 +274,18 @@ class CSClient:
         self._cache  = {}
         self._stats  = {"ws_created":0,"ws_existing":0,"ws_failed":0,
                          "f_uploaded":0,"f_versioned":0,"f_skipped":0,"f_failed":0}
-        # Maps normalized excel workspace name → actual name created/found in OTCS
-        # e.g. 'SPLIC-00042' → 'SPLIC - 00046'
         self.ws_name_map: dict[str, str] = {}
 
     def authenticate(self):
         info(f"\n{bold('Authenticating')} → {self.base}")
-        r = self.session.post(f"{self.base}/api/v1/auth", verify=self.ssl,
-                              data={"username":self.cfg["username"],"password":self.cfg["password"]})
+        try:
+            r = self.session.post(f"{self.base}/api/v1/auth", verify=self.ssl,
+                                  timeout=_REQUEST_TIMEOUT,
+                                  data={"username":self.cfg["username"],"password":self.cfg["password"]})
+        except requests.Timeout:
+            err(f"  ✖ Auth timed out after {_REQUEST_TIMEOUT}s"); sys.exit(1)
+        except requests.RequestException as e:
+            err(f"  ✖ Auth request failed: {e}"); sys.exit(1)
         if r.status_code != 200:
             err(f"  ✖ Auth failed HTTP {r.status_code}: {r.text[:200]}")
             sys.exit(1)
@@ -269,17 +294,29 @@ class CSClient:
 
     def _get(self, path, **kw):
         time.sleep(self.cfg["request_delay"])
-        r = self.session.get(f"{self.base}{path}", verify=self.ssl, **kw)
+        kw.setdefault("timeout", _REQUEST_TIMEOUT)
+        try:
+            r = self.session.get(f"{self.base}{path}", verify=self.ssl, **kw)
+        except requests.Timeout:
+            raise requests.HTTPError(f"GET {path} timed out after {_REQUEST_TIMEOUT}s")
         r.raise_for_status(); return r.json()
 
     def _post(self, path, **kw):
         time.sleep(self.cfg["request_delay"])
-        r = self.session.post(f"{self.base}{path}", verify=self.ssl, **kw)
+        kw.setdefault("timeout", _REQUEST_TIMEOUT)
+        try:
+            r = self.session.post(f"{self.base}{path}", verify=self.ssl, **kw)
+        except requests.Timeout:
+            raise requests.HTTPError(f"POST {path} timed out after {_REQUEST_TIMEOUT}s")
         r.raise_for_status(); return r.json()
 
     def _put(self, path, **kw):
         time.sleep(self.cfg["request_delay"])
-        r = self.session.put(f"{self.base}{path}", verify=self.ssl, **kw)
+        kw.setdefault("timeout", _REQUEST_TIMEOUT)
+        try:
+            r = self.session.put(f"{self.base}{path}", verify=self.ssl, **kw)
+        except requests.Timeout:
+            raise requests.HTTPError(f"PUT {path} timed out after {_REQUEST_TIMEOUT}s")
         r.raise_for_status(); return r.json()
 
     def _find_child(self, parent_id: int, name: str) -> int | None:
@@ -348,11 +385,11 @@ class CSClient:
         try:
             time.sleep(self.cfg["request_delay"])
             r = self.session.post(f"{self.base}/api/v2/businessworkspaces",
-                                  verify=self.ssl, data={"body": json.dumps(body)})
+                                  verify=self.ssl, timeout=_REQUEST_TIMEOUT,
+                                  data={"body": json.dumps(body)})
             if r.status_code in (200, 201):
                 rj = r.json()["results"]
                 nid = rj["id"]
-                # The actual name assigned by OTCS (may differ from excel_name)
                 actual_name = (rj.get("data", {}).get("properties", {}).get("name")
                                or self._fetch_node_name(nid)
                                or excel_name)
@@ -361,16 +398,17 @@ class CSClient:
                 return nid, True, actual_name
             warn(f"    ⚠ /v2/businessworkspaces HTTP {r.status_code}: {r.text[:300]}")
             r.raise_for_status()
+        except requests.Timeout:
+            warn(f"    ⚠ BW creation timed out after {_REQUEST_TIMEOUT}s")
         except requests.HTTPError as e:
             warn(f"    ⚠ BW creation failed HTTP "
                  f"{e.response.status_code if e.response else '?'}: "
-                 f"{e.response.text[:300] if e.response else ''}")
+                 f"{e.response.text[:300] if e.response else str(e)}")
 
         warn("    ↳ Falling back to plain Folder")
         nid = self._post("/api/v2/nodes",
                          data={"type":0,"parent_id":parent_id,"name":excel_name}
                          )["results"]["data"]["properties"]["id"]
-        # For plain folder the name is whatever we sent
         actual_name = self._fetch_node_name(nid) or excel_name
         self._register_name(excel_name, actual_name)
         dbg(f"    ↳ Created as Folder (id={nid}, actual='{actual_name}')")
@@ -388,17 +426,13 @@ class CSClient:
         """Store excel→actual name mapping (both normalized and raw keys)."""
         key = normalize_ws_name(excel_name)
         self.ws_name_map[key] = actual_name
-        # Also store the raw excel name as key, for direct lookup
         self.ws_name_map[excel_name] = actual_name
         if actual_name != excel_name:
             info(yellow(f"           ⚑ Name remapped: '{excel_name}' → '{actual_name}'"))
 
     def remap_file_location(self, location: str) -> str:
         """Replace any workspace name segment in a file location path with the
-        actual name that was created/found in OTCS.
-
-        Works by scanning each path segment and substituting via ws_name_map.
-        """
+        actual name that was created/found in OTCS."""
         if not self.ws_name_map:
             return location
         parts = location.replace("\\", "/").split("/")
@@ -426,7 +460,7 @@ class CSClient:
         except requests.HTTPError as e:
             warn(f"    ⚠ Category update failed: HTTP "
                  f"{e.response.status_code if e.response else '?'}  "
-                 f"{e.response.text[:200] if e.response else ''}")
+                 f"{e.response.text[:200] if e.response else str(e)}")
             return False
 
     def upload_file(self, parent_id: int, f: dict) -> str:
@@ -446,6 +480,7 @@ class CSClient:
             time.sleep(self.cfg["request_delay"])
             with open(local_path, "rb") as fh:
                 r = self.session.post(f"{self.base}/api/v2/nodes", verify=self.ssl,
+                                      timeout=_REQUEST_TIMEOUT,
                                       data={"type":144,"parent_id":parent_id,"name":name},
                                       files={"file":(name, fh, mime)})
             if r.status_code in (200,201):
@@ -453,10 +488,12 @@ class CSClient:
                 dbg(f"    ↳ Uploaded (id={nid})"); return "uploaded"
             warn(f"    ⚠ Upload HTTP {r.status_code}: {r.text[:300]}")
             r.raise_for_status()
+        except requests.Timeout:
+            err(f"    ✖ Upload timed out after {_REQUEST_TIMEOUT}s")
         except requests.HTTPError as e:
             err(f"    ✖ Upload failed HTTP "
                 f"{e.response.status_code if e.response else '?'}: "
-                f"{e.response.text[:200] if e.response else ''}")
+                f"{e.response.text[:200] if e.response else str(e)}")
         except OSError as e:
             err(f"    ✖ Cannot read file: {e}")
         return "failed"
@@ -466,13 +503,16 @@ class CSClient:
             time.sleep(self.cfg["request_delay"])
             with open(local_path, "rb") as fh:
                 r = self.session.post(f"{self.base}/api/v2/nodes/{node_id}/versions",
-                                      verify=self.ssl, files={"file":(name, fh, mime)})
+                                      verify=self.ssl, timeout=_REQUEST_TIMEOUT,
+                                      files={"file":(name, fh, mime)})
             if r.status_code in (200,201):
                 dbg(f"    ↳ New version added"); return "versioned"
             warn(f"    ⚠ Add version HTTP {r.status_code}: {r.text[:300]}")
             r.raise_for_status()
+        except requests.Timeout:
+            err(f"    ✖ Add version timed out after {_REQUEST_TIMEOUT}s")
         except requests.HTTPError as e:
-            err(f"    ✖ Add version failed: {e.response.text[:200] if e.response else e}")
+            err(f"    ✖ Add version failed: {e.response.text[:200] if e.response else str(e)}")
         except OSError as e:
             err(f"    ✖ Cannot read file: {e}")
         return "failed"
@@ -485,33 +525,36 @@ class CSClient:
 # Main
 # ─────────────────────────────────────────────────────────────────────────────
 def run():
-    args    = sys.argv[1:]
-    dry_run = "--dry-run" in args
-    args    = [a for a in args if a != "--dry-run"]
+    parser = argparse.ArgumentParser(
+        prog="cs_importer",
+        description="OpenText Content Server – Generic Importer (Workspaces + Files)",
+    )
+    parser.add_argument("xlsx", help="Path to the input XLSX file")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="Simulate import without making any changes")
+    args = parser.parse_args()
 
-    if not args:
-        print(red("Usage: cs_importer.exe <data.xlsx> [--dry-run]"))
-        print(red("       A companion <data.json> must exist in the same folder."))
+    # Validate XLSX before anything else
+    try:
+        xlsx_path = validate_xlsx_path(args.xlsx)
+    except (FileNotFoundError, ValueError) as e:
+        print(red(f"✖ {e}"))
         sys.exit(1)
 
-    xlsx_path = args[0]
-    if getattr(sys, "frozen", False) and not os.path.isabs(xlsx_path):
-        xlsx_path = os.path.join(os.path.dirname(sys.executable), xlsx_path)
-
-    if not os.path.isfile(xlsx_path):
-        print(red(f"✖ XLSX not found: {xlsx_path}")); sys.exit(1)
-
-    cfg = load_config(xlsx_path, dry_run)
+    cfg = load_config(xlsx_path, args.dry_run)
     full_log, error_log = setup_logging(xlsx_path)
     t0 = datetime.now()
+
+    json_path = str(Path(xlsx_path).with_suffix(".json"))
 
     # Banner
     info("")
     info(bold(cyan("╔══════════════════════════════════════════════════════════════════╗")))
     info(bold(cyan("║  OpenText CS – Generic Importer  (Workspaces + Files)           ║")))
     info(bold(cyan("╚══════════════════════════════════════════════════════════════════╝")))
+    info(f"  BASE_DIR     : {BASE_DIR}")
     info(f"  XLSX         : {xlsx_path}")
-    info(f"  Config       : {Path(xlsx_path).with_suffix('.json')}")
+    info(f"  Config       : {json_path}")
     info(f"  Full log     : {full_log}")
     info(f"  Error log    : {error_log}")
     info(f"  Target       : {cfg['base_url']}")
@@ -520,6 +563,10 @@ def run():
     info(f"  Category ID  : {cfg['category_id']}")
     _roots = get_roots(cfg)
     info(f"  File root(s) : {'; '.join(_roots) if _roots else '(XLSX paths used as-is)'}")
+    # Warn about missing file roots — do not hard-fail
+    for root in _roots:
+        if not Path(root).exists():
+            warn(f"  ⚠ File root does not exist: {root}")
     if cfg.get("recursive_file_search"):
         info(f"  Recursive    : enabled")
     if not cfg.get("auto_detect_file_columns", True):
@@ -534,7 +581,9 @@ def run():
         workspaces = parse_workspaces(cfg)
         files      = parse_files(cfg)
     except Exception as e:
-        err(f"  ✖ Error reading XLSX: {e}"); sys.exit(1)
+        err(f"  ✖ Error reading XLSX: {e}")
+        if LOG: LOG.debug(traceback.format_exc())
+        sys.exit(1)
     info(green(f"  ✔ {len(workspaces)} workspace rows, {len(files)} file rows"))
 
     if workspaces:
@@ -587,7 +636,9 @@ def run():
                     if nid != -1 and client.apply_category(nid, ws["cat_values"]):
                         info(green("           ✔ Category updated"))
             except Exception as e:
-                err(f"           ✖ {e}"); client.record("ws_failed")
+                err(f"           ✖ {e}")
+                if LOG: LOG.debug(traceback.format_exc())
+                client.record("ws_failed")
         print(f"\r  {progress_bar(total, total)}"); info("")
     else:
         info(bold("Step 3/4  No workspaces — skipping")); info("")
@@ -600,7 +651,6 @@ def run():
         for i, f in enumerate(files, 1):
             print(f"\r  {progress_bar(i-1, total)}", end="", flush=True); print()
             info(f"  [{i:>3}/{total}]  {bold(f['title'][:60])}")
-            # Remap the location: replace excel workspace names with actual OTCS names
             original_loc = f["location"]
             remapped_loc = client.remap_file_location(original_loc)
             if remapped_loc != original_loc:
@@ -619,7 +669,9 @@ def run():
                 elif result == "skipped":   info(yellow("           ⚑ Skipped"));          client.record("f_skipped")
                 else:                                                                       client.record("f_failed")
             except Exception as e:
-                err(f"           ✖ {e}"); client.record("f_failed")
+                err(f"           ✖ {e}")
+                if LOG: LOG.debug(traceback.format_exc())
+                client.record("f_failed")
         print(f"\r  {progress_bar(total, total)}"); info("")
     else:
         info(bold("Step 4/4  No files — skipping")); info("")
@@ -651,4 +703,15 @@ def run():
 
 
 if __name__ == "__main__":
-    run()
+    try:
+        run()
+    except SystemExit:
+        raise
+    except Exception:
+        tb = traceback.format_exc()
+        if LOG:
+            LOG.critical(f"Fatal unhandled error:\n{tb}")
+        print(red(f"\n✖ Fatal error — please send the log file to support:\n{tb}"))
+        if sys.stdout.isatty():
+            input("Press ENTER to exit...")
+        sys.exit(2)
