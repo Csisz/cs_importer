@@ -1,0 +1,82 @@
+{
+  "_description": "Legacy mode — fixed column indices, single local_file_root. Equivalent to old behaviour.",
+
+  "base_url":           "https://your-otcs-server.example.com/otcs/cs.exe",
+  "username":           "admin",
+  "password":           "secret",
+
+  "enterprise_node_id": 50981573,
+  "template_id":        49554379,
+  "wksp_type_id":       62,
+  "category_id":        49554378,
+
+  "ws_sheet":           "Workspace",
+  "file_sheet":         "File",
+
+  "ws_data_start_row":  4,
+  "file_data_start_row": 0,
+
+  "local_file_root":    "D:\\import\\SP_Licin_teszt",
+
+  "on_duplicate":       "skip",
+  "request_delay":      0.3,
+  "ssl_verify":         false,
+  "dry_run":            false,
+
+  "_comment_new_keys": "These keys keep auto-detect OFF so behaviour is identical to the old version.",
+  "auto_detect_file_columns": false,
+  "recursive_file_search":    false,
+
+  "ws_columns": {
+    "location": 0,
+    "title":    1
+  },
+
+  "file_columns": {
+    "location": 0,
+    "title":    1,
+    "src":      2,
+    "mime":     3,
+    "version":  4
+  },
+
+  "category_fields": {
+    "inn": {
+      "attr_id":     3,
+      "multi_value": true,
+      "col_start":   7,
+      "col_end":     12
+    },
+    "pkg_type": {
+      "attr_id":     5,
+      "multi_value": false,
+      "col":         6,
+      "value_map": {
+        "Faltkarton": "Faltkarton / Folding box",
+        "Tájékoztató": "Tájékoztató / Leaflet",
+        "Címke": "Címke / Label"
+      }
+    },
+    "egis_id": {
+      "attr_id":     9,
+      "multi_value": false,
+      "col":         4
+    },
+    "prod_site": {
+      "attr_id":     23,
+      "multi_value": false,
+      "col":         5
+    },
+    "country": {
+      "attr_id":     22,
+      "multi_value": true,
+      "col_start":   13,
+      "col_end":     19
+    },
+    "other_info": {
+      "attr_id":     16,
+      "multi_value": false,
+      "col":         20
+    }
+  }
+}

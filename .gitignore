@@ -1,0 +1,78 @@
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+parts/
+var/
+sdist/
+develop-eggs/
+.installed.cfg
+lib/
+lib64/
+
+# ── PyInstaller ───────────────────────────────────────────────────────────────
+# Keep cs_importer.spec (it is intentionally maintained)
+dist/
+build/
+*.zip
+*.exe
+!installer/*.exe
+
+# ── Virtual environments ──────────────────────────────────────────────────────
+.venv/
+venv/
+env/
+ENV/
+.env
+.env.*
+
+# ── IDE / editor ──────────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Testing ───────────────────────────────────────────────────────────────────
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# ── Runtime logs ─────────────────────────────────────────────────────────────
+logs/
+*.log
+
+# ── Secrets / credentials / local config overrides ───────────────────────────
+# Real data files with embedded credentials – keep only example configs
+cleaner.py
+test.py
+test_ws_create.py
+test_files_create.py
+cs_import_workspaces.py
+cs_importer.BAK
+
+# Real JSON configs with credentials and company paths
+SP_licin_*.json
+installer/
+
+# Customer XLSX spreadsheets – never commit customer data
+*.xlsx
+*.xls
+# (keep example .xlsx files if added under docs/examples/)
+!docs/examples/*.xlsx
+
+# ── Misc local artifacts ──────────────────────────────────────────────────────
+*.bak
+*.tmp
+*.orig

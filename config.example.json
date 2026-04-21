@@ -1,0 +1,93 @@
+{
+  "_description": "Example config for cs_importer. Copy to <your_data>.json alongside your XLSX file.",
+  "_warning":     "NEVER commit a config file containing real credentials or company paths.",
+
+  "base_url":           "https://your-otcs-server.example.com/otcs/cs.exe",
+  "username":           "admin",
+  "password":           "REPLACE_ME",
+
+  "enterprise_node_id": 12345678,
+  "template_id":        23456789,
+  "wksp_type_id":       62,
+  "category_id":        34567890,
+
+  "ws_sheet":           "Workspace",
+  "file_sheet":         "File",
+
+  "ws_data_start_row":  4,
+
+  "on_duplicate":       "skip",
+  "request_delay":      0.3,
+  "ssl_verify":         false,
+  "dry_run":            true,
+
+  "_comment_ws_columns": "0-based column indices in the Workspace sheet.",
+  "ws_columns": {
+    "location": 0,
+    "title":    1
+  },
+
+  "_comment_file_path_resolution": [
+    "OPTION A – Legacy single root (original behaviour):",
+    "  Set local_file_root to an absolute path. auto_detect_file_columns can be false.",
+    "",
+    "OPTION B – Multi-root mode:",
+    "  Set local_file_roots to a list of paths. The importer tries each in order.",
+    "  UNC paths work fine on Windows: \\\\\\\\server\\\\share\\\\folder",
+    "",
+    "OPTION C – Full auto-detect (no fixed columns):",
+    "  Set auto_detect_file_columns: true and leave file_columns empty ({}).",
+    "  The importer scans up to 30 rows to find the header row automatically.",
+    "  Add file_column_aliases for headers not in the built-in English/Hungarian list.",
+    "",
+    "All options are backward-compatible. Any file_columns values you DO specify",
+    "override auto-detection for that field only."
+  ],
+
+  "local_file_root":  "C:\\import\\files",
+  "local_file_roots": [],
+
+  "auto_detect_file_columns": true,
+  "recursive_file_search":    false,
+
+  "file_column_aliases": {},
+
+  "_comment_file_columns": [
+    "Specify 0-based column indices to override auto-detection for individual fields.",
+    "Leave as {} to rely entirely on header auto-detection."
+  ],
+  "file_columns": {
+    "location": 0,
+    "title":    1,
+    "src":      2,
+    "mime":     3,
+    "version":  4
+  },
+
+  "_comment_category_fields": [
+    "Maps a semantic field key to its CS AttrID and XLSX column(s).",
+    "multi_value fields use col_start/col_end; single-value fields use col.",
+    "value_map translates short XLSX values to the full CS picklist values."
+  ],
+  "category_fields": {
+    "example_text_field": {
+      "attr_id":     9,
+      "multi_value": false,
+      "col":         4
+    },
+    "example_popup_field": {
+      "attr_id":     5,
+      "multi_value": false,
+      "col":         6,
+      "value_map": {
+        "Short value": "Full CS picklist value"
+      }
+    },
+    "example_multivalue_field": {
+      "attr_id":     3,
+      "multi_value": true,
+      "col_start":   7,
+      "col_end":     12
+    }
+  }
+}

@@ -1,0 +1,91 @@
+{
+  "_description": "Full auto-detect mode — no fixed column indices; columns found from XLSX headers. Recursive search enabled.",
+
+  "base_url":           "https://your-otcs-server.example.com/otcs/cs.exe",
+  "username":           "admin",
+  "password":           "secret",
+
+  "enterprise_node_id": 50981573,
+  "template_id":        49554379,
+  "wksp_type_id":       62,
+  "category_id":        49554378,
+
+  "ws_sheet":           "Workspace",
+  "file_sheet":         "File",
+
+  "ws_data_start_row":  4,
+
+  "local_file_roots": [
+    "D:\\import\\files"
+  ],
+
+  "_comment_autodetect": [
+    "auto_detect_file_columns: true → header row is found automatically.",
+    "  The importer scans up to 30 rows to find the row that best matches",
+    "  known header aliases (English + Hungarian).",
+    "recursive_file_search: true → if a filename is not found at root level,",
+    "  the importer will walk subdirectories. Slower but convenient.",
+    "file_columns: {} → rely entirely on header auto-detection.",
+    "file_column_aliases: add any project-specific column headers here."
+  ],
+  "auto_detect_file_columns": true,
+  "recursive_file_search":    true,
+  "file_columns":             {},
+
+  "file_column_aliases": {
+    "src":     ["Fájlnév", "Fájl neve"],
+    "folder":  ["Forrás könyvtár"],
+    "title":   ["Dokumentum neve", "Megnevezés"],
+    "version": ["Verzió"]
+  },
+
+  "on_duplicate":  "new_version",
+  "request_delay": 0.3,
+  "ssl_verify":    false,
+  "dry_run":       true,
+
+  "ws_columns": {
+    "location": 0,
+    "title":    1
+  },
+
+  "category_fields": {
+    "inn": {
+      "attr_id":     3,
+      "multi_value": true,
+      "col_start":   7,
+      "col_end":     12
+    },
+    "pkg_type": {
+      "attr_id":     5,
+      "multi_value": false,
+      "col":         6,
+      "value_map": {
+        "Faltkarton": "Faltkarton / Folding box",
+        "Tájékoztató": "Tájékoztató / Leaflet",
+        "Címke": "Címke / Label"
+      }
+    },
+    "egis_id": {
+      "attr_id":     9,
+      "multi_value": false,
+      "col":         4
+    },
+    "prod_site": {
+      "attr_id":     23,
+      "multi_value": false,
+      "col":         5
+    },
+    "country": {
+      "attr_id":     22,
+      "multi_value": true,
+      "col_start":   13,
+      "col_end":     19
+    },
+    "other_info": {
+      "attr_id":     16,
+      "multi_value": false,
+      "col":         20
+    }
+  }
+}

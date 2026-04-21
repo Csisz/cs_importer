@@ -1,0 +1,100 @@
+{
+  "_description": "Modern multi-root mode — multiple source folders, auto-detect columns, optional recursive search.",
+
+  "base_url":           "https://your-otcs-server.example.com/otcs/cs.exe",
+  "username":           "admin",
+  "password":           "secret",
+
+  "enterprise_node_id": 50981573,
+  "template_id":        49554379,
+  "wksp_type_id":       62,
+  "category_id":        49554378,
+
+  "ws_sheet":           "Workspace",
+  "file_sheet":         "File",
+
+  "ws_data_start_row":  4,
+
+  "_comment_roots": [
+    "local_file_root (legacy) is still supported alongside local_file_roots.",
+    "Roots are tried in order: first match wins.",
+    "UNC paths work fine on Windows: \\\\fileserver\\shares\\docs"
+  ],
+  "local_file_roots": [
+    "D:\\import\\SP_Licin_teszt",
+    "D:\\archive\\2025",
+    "\\\\fileserver\\shares\\packaging_docs"
+  ],
+
+  "_comment_resolution": [
+    "auto_detect_file_columns: true means the importer scans the XLSX header row",
+    "  and maps columns by header name (Hungarian and English aliases built-in).",
+    "recursive_file_search: false — set to true to allow deep folder walks.",
+    "file_column_aliases: add project-specific header names not in the built-in list."
+  ],
+  "auto_detect_file_columns": true,
+  "recursive_file_search":    false,
+
+  "file_column_aliases": {
+    "src":    ["Fájl neve", "Forrás fájl", "Fájl elérési útja"],
+    "folder": ["Forrás könyvtár", "Almappa"],
+    "title":  ["Dokumentum neve", "Leírás"]
+  },
+
+  "_comment_file_columns": [
+    "file_columns can be empty ({}) when auto_detect_file_columns is true.",
+    "Any index you DO specify here overrides auto-detection for that field only.",
+    "Useful when one column is ambiguous but others are detected fine."
+  ],
+  "file_columns": {},
+
+  "on_duplicate":  "skip",
+  "request_delay": 0.3,
+  "ssl_verify":    false,
+  "dry_run":       false,
+
+  "ws_columns": {
+    "location": 0,
+    "title":    1
+  },
+
+  "category_fields": {
+    "inn": {
+      "attr_id":     3,
+      "multi_value": true,
+      "col_start":   7,
+      "col_end":     12
+    },
+    "pkg_type": {
+      "attr_id":     5,
+      "multi_value": false,
+      "col":         6,
+      "value_map": {
+        "Faltkarton": "Faltkarton / Folding box",
+        "Tájékoztató": "Tájékoztató / Leaflet",
+        "Címke": "Címke / Label"
+      }
+    },
+    "egis_id": {
+      "attr_id":     9,
+      "multi_value": false,
+      "col":         4
+    },
+    "prod_site": {
+      "attr_id":     23,
+      "multi_value": false,
+      "col":         5
+    },
+    "country": {
+      "attr_id":     22,
+      "multi_value": true,
+      "col_start":   13,
+      "col_end":     19
+    },
+    "other_info": {
+      "attr_id":     16,
+      "multi_value": false,
+      "col":         20
+    }
+  }
+}
